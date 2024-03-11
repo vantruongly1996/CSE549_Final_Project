@@ -1,0 +1,51 @@
+#include <bsg_manycore.h>
+#include <bsg_cuda_lite_barrier.h>
+
+#ifdef WARM_CACHE
+__attribute__((noinline))
+static void warmup(int *arr, int N)
+{
+  for (int i = __bsg_id * CACHE_LINE_WORDS; i < N; i += bsg_tiles_X * bsg_tiles_Y * CACHE_LINE_WORDS) {
+      asm volatile ("lw x0, %[p]" :: [p] "m" (arr[i]));
+      asm volatile ("sw x0, %[p]" :: [p] "m" (arr[i]));
+  }
+  bsg_fence();
+}
+#endif
+
+// Integer Sorting (IS)
+extern "C" __attribute__ ((noinline))
+int kernel_IS(int *arr, int N) {
+  bsg_barrier_hw_tile_group_init();
+#ifdef WARM_CACHE
+  warmup(arr, N);
+#endif
+  bsg_barrier_hw_tile_group_sync();
+  bsg_cuda_print_stat_kernel_start();
+
+
+
+  // Each tile does a portion of vector_add
+  int len = N / (bsg_tiles_X*bsg_tiles_Y);
+  int *myarr = &arr[0];
+
+  // Sorting Algorithm (Bubble Sort)
+  for (int i = 0; i < N - 1; ++i) {
+      for (int j = 0; j < N - i - 1; ++j) {
+          if (myarr[j] > myarr[j + 1]) {
+              // Swap
+              int temp = myarr[j];
+              myarr[j] = myarr[j + 1];
+              myarr[j + 1] = temp;
+          }
+      }
+  }
+
+  bsg_fence();
+  bsg_cuda_print_stat_kernel_end();
+  bsg_fence();
+  bsg_barrier_hw_tile_group_sync();
+
+  return 0;
+}
+

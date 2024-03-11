@@ -1,0 +1,69 @@
+#include <bsg_manycore.h>
+#include <bsg_cuda_lite_barrier.h>
+
+#ifdef WARM_CACHE
+__attribute__((noinline))
+static void warmup(int *A, int N)
+{
+  for (int i = __bsg_id * CACHE_LINE_WORDS; i < N; i += bsg_tiles_X * bsg_tiles_Y * CACHE_LINE_WORDS) {
+      asm volatile ("lw x0, %[p]" :: [p] "m" (A[i]));
+      //asm volatile ("sw x0, %[p]" :: [p] "m" (A[i]));
+  }
+  bsg_fence();
+}
+#endif
+
+// Integer Sorting (IS)
+extern "C" __attribute__ ((noinline))
+int kernel_IS(int *A, int N) {
+  bsg_barrier_hw_tile_group_init();
+#ifdef WARM_CACHE
+  warmup(A, N);
+#endif
+  bsg_barrier_hw_tile_group_sync();
+  bsg_cuda_print_stat_kernel_start();
+
+
+
+  // Each tile does a portion of vector_add
+  //int len = N / (bsg_tiles_X*bsg_tiles_Y);
+  //int *myA = &A[0];
+
+  // Sorting Algorithm (Bubble Sort)
+  for (int i = 0; i < N - 1; ++i) {
+    //for (int i = __bsg_id*16; i < N-1; i += bsg_tiles_X*bsg_tiles_Y*16){
+    // for (int j = __bsg_id*16; i < N-i-1; j += bsg_tiles_X*bsg_tiles_Y*16){
+	    for (int j = 0; j < N - i - 1; ++j) {
+          if (A[j] > A[j + 1]) {
+              // Swap
+              int temp = A[j];
+              A[j] = A[j + 1];
+              A[j + 1] = temp;
+          }
+      }
+  }
+
+/*  for (int i = 0; i < N - 1; ++i) {
+    for (int j = __bsg_id * 16; j < N - i - 1; j += bsg_tiles_X * bsg_tiles_Y * 16) {
+        // Unrolled inner loop for better performance
+        for (int k = 0; k < 16; ++k) {
+            int index = j + k;
+            if (index < N - i - 1 && A[index] > A[index + 1]) {
+                // Swap
+                int temp = A[index];
+                A[index] = A[index + 1];
+                A[index + 1] = temp;
+            }
+        }
+    }
+}*/
+
+
+  bsg_fence();
+  bsg_cuda_print_stat_kernel_end();
+  bsg_fence();
+  bsg_barrier_hw_tile_group_sync();
+
+  return 0;
+}
+
